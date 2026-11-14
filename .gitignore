@@ -1,0 +1,11 @@
+lakehouse/
+spark-warehouse/
+metastore_db/
+derby.log
+mlruns/
+__pycache__/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ipynb_checkpoints/

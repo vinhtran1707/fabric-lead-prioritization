@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leadscore"
+version = "0.1.0"
+description = "Lead conversion scoring pipeline for Microsoft Fabric"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+local = ["pyspark==3.5.3", "pandas", "scikit-learn", "lightgbm", "shap", "matplotlib", "mlflow-skinny", "pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
