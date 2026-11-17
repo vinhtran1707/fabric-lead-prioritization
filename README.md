@@ -7,8 +7,8 @@ end in a model-ready feature table for scoring which leads a seller should call 
 The same code runs **locally** (Spark in local mode, Parquet tables) and **in a Fabric notebook**
 (managed Delta tables that Power BI can read in Direct Lake mode), so every layer is testable in CI.
 
-> **Status:** the data foundation (bronze, silver, gold, quality checks, tests) is complete.
-> The conversion model, calibration, SHAP explanations, and Power BI report are in progress.
+> **Status:** data foundation and model are complete: medallion pipeline, rolling monthly backtest,
+> champion model with reason codes, and a ranked call list. The Power BI report is next.
 
 ## Data
 
@@ -52,17 +52,53 @@ The bank cut call volume sharply and shifted to re-contacting past leads, and co
 than tenfold. A model trained on 2008 behavior will not transfer to 2010 without retraining, which is
 why the modeling stage uses time-based validation instead of random splits.
 
+## Model results (out of time)
+
+Every month from March 2009 to November 2010 is scored by a model trained only on earlier months.
+
+| Model | AUC within month | Top 20% of calls captures |
+|---|---|---|
+| **Logistic regression (champion)** | **0.613** | **28.8%** of conversions |
+| LightGBM (challenger) | 0.611 | 28.3% |
+| Seller rule: call past successes first | 0.568 | 27.0% |
+| Logistic regression trained once, never retrained | 0.548 | 24.8% |
+
+![AUC by month](docs/backtest_auc.png)
+
+**What the experiments showed** (details in [`docs/model_card.md`](docs/model_card.md)):
+
+- **Retraining is the biggest lever.** A model trained once drifts toward a coin flip as the market
+  changes, while monthly retraining climbs to an AUC of 0.74 to 0.82 in late 2010.
+- **Simpler won.** Logistic regression matched LightGBM, so it is the champion: equal accuracy,
+  and its explanations are exact.
+- **Timing matters more than targeting.** Economic conditions move conversion from about 5% to over
+  50%, while ranking leads within a month adds a real but modest lift (1.6x to 1.7x for the top two deciles in the latest three months).
+- **Honest calibration.** Recalibrating on recent months made probabilities worse, so the model card
+  documents that top-decile probabilities run optimistic and scores should be used for ranking.
+
+**Ranked call list with reasons**, measured against the other leads that month (`gold_lead_scores`):
+
+| Lead | Month | Score | Reason 1 | Reason 2 | Reason 3 |
+|---|---|---|---|---|---|
+| L040560 | 2010-09 | 0.76 | Contacted in an earlier campaign | Previous campaign outcome: success | Job: student |
+| L040736 | 2010-09 | 0.74 | Contacted in an earlier campaign | Job: retired | Previous campaign outcome: success |
+
+Full tables (calibration by decile, lift by decile, more of the call list) are in
+[`docs/results.md`](docs/results.md).
+
 ## Run it
 
 ```bash
 pip install -e ".[local]"             # needs Java 11+ for PySpark
 python -m pytest -q tests             # unit tests for the transforms
 python scripts/run_data_pipeline.py   # bronze -> silver -> gold with quality gates
+python scripts/run_model.py           # backtest, score, explain -> gold model tables + docs/results.md
 ```
 
 **In Microsoft Fabric:** upload `data/raw/bank-additional-full.csv` to the lakehouse at `Files/raw/`,
 attach the `leadscore` wheel (`python -m build`) through a Fabric Environment, and run
-`notebooks/01_build_lakehouse.ipynb`. Tables are written as Delta with `saveAsTable`.
+`notebooks/01_build_lakehouse.ipynb`, then `notebooks/02_backtest_and_score.ipynb`. Tables are written
+as Delta with `saveAsTable`, and backtest metrics are logged to Fabric's built-in MLflow.
 
 ## Project layout
 
@@ -70,14 +106,13 @@ attach the `leadscore` wheel (`python -m build`) through a Fabric Environment, a
 src/leadscore/lakehouse.py   # read/write tables the same way locally and in Fabric
 src/leadscore/pipeline.py    # bronze, silver, gold transforms
 src/leadscore/quality.py     # data quality checks between layers
+src/leadscore/modeling.py    # backtest, champion model, scoring, reason codes
 notebooks/                   # Fabric notebooks
 tests/                       # PySpark unit tests
 ```
 
 ## Roadmap
 
-- LightGBM conversion model with rolling time-based backtests and monthly retraining
-- Probability calibration so scores can be used for pipeline forecasting
-- SHAP reason codes per lead for sellers
-- Ranked call list and lift analysis
-- Power BI report on the gold tables (Direct Lake)
+- Power BI report on the gold tables (Direct Lake): monthly model health, lift, and the call list
+- Fairness review of scores and outcomes across age groups
+- AI assistant on top of the gold tables to answer questions like "why did conversion drop?"

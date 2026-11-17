@@ -23,3 +23,5 @@ jobs:
         run: python -m pytest -q tests
       - name: Run the medallion pipeline with quality gates
         run: python scripts/run_data_pipeline.py
+      - name: Backtest, score, and explain
+        run: python scripts/run_model.py
